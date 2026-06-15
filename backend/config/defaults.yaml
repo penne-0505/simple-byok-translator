@@ -1,0 +1,129 @@
+# Bundled translation defaults.
+#
+# This file is the "batteries included" policy: the default model, the base
+# instruction, the per-model harness profiles, and which model maps to which
+# profile. Everything here is overridable per request (see app/schemas.py),
+# but these are the values used when the caller specifies nothing.
+#
+# Editing this file is the intended way to retune defaults for a deployment;
+# no code change is required.
+
+default_model: "google/gemini-3.1-flash-lite"
+default_source_language: "auto"
+default_target_language: "Japanese"
+default_profile: "general"
+# Streaming requests with no explicit profile use this delimiter-free profile,
+# since streamed deltas can't be post-extracted. Explicit profiles still win.
+default_stream_profile: "raw"
+
+# A request's model is matched against these globs in order; first hit wins.
+# Anything unmatched uses default_profile. This is the "per-model assist" wiring.
+model_profile_map:
+  "anthropic/*": "claude"
+  "google/*": "gemini"
+  "openai/*": "general"
+
+# Shown by GET /v1/config so a UI can offer a starting menu. Not a hard allow-list.
+# Verified live on OpenRouter 2026-06-15; slugs drift, so treat as a starting menu.
+known_models:
+  - "google/gemini-3.1-flash-lite"
+  - "google/gemini-3.5-flash"
+  - "google/gemini-3.1-pro-preview"
+  - "google/gemini-2.5-flash"
+  - "anthropic/claude-haiku-4.5"
+  - "anthropic/claude-opus-4.5"
+  - "openai/gpt-4o-mini"
+  - "deepseek/deepseek-chat"
+
+# Reasoning is per-request: send `reasoning_effort` (none/minimal/low/medium/
+# high/xhigh) or a full `reasoning` object. A profile may also set a default
+# `reasoning:` block below; per-request values merge over it (effort wins).
+
+base_instruction: |
+  You are a professional translator. Produce an accurate, natural translation
+  that reads as if originally written by a native speaker of the target
+  language. Preserve the author's meaning, register, and intent. Do not add,
+  omit, or editorialize.
+
+profiles:
+  # General-purpose, model-agnostic. Asks for a delimited block so a stray
+  # preamble can be stripped server-side.
+  general:
+    description: "Model-agnostic default. Delimited output, balanced temperature."
+    temperature: 0.3
+    output_open: "<<<TRANSLATION>>>"
+    output_close: "<<<END>>>"
+    system_template: |
+      {instruction}
+
+      Translate the text the user provides from {source_language} to {target_language}.
+
+      Rules:
+      - Output only the translation. No explanations, notes, or apologies.
+      - Preserve formatting, line breaks, markdown, and code exactly.
+      - Do not translate content inside code blocks, URLs, or placeholders like {{name}}.
+      - {tone_line}
+
+      Glossary (apply when relevant):
+      {glossary_block}
+
+      Put the entire translation between {output_open} and {output_close}, with nothing outside them.
+
+  # Tuned for Anthropic models: XML-style delimiters they follow reliably,
+  # slightly lower temperature for fidelity.
+  claude:
+    description: "Anthropic models. XML delimiters, low temperature for fidelity."
+    temperature: 0.2
+    output_open: "<translation>"
+    output_close: "</translation>"
+    system_template: |
+      {instruction}
+
+      Translate the user's text from {source_language} to {target_language}.
+
+      Constraints:
+      - Reply with the translation only — no preamble, no commentary.
+      - Keep all formatting, markdown, line breaks, and code verbatim.
+      - Leave code blocks, URLs, and placeholders like {{name}} untranslated.
+      - {tone_line}
+
+      Glossary to honor when applicable:
+      {glossary_block}
+
+      Wrap the full translation in {output_open}...{output_close} tags and write nothing outside them.
+
+  # Tuned for Google models.
+  gemini:
+    description: "Google Gemini models. Delimited output, balanced temperature."
+    temperature: 0.3
+    output_open: "<<<TRANSLATION>>>"
+    output_close: "<<<END>>>"
+    system_template: |
+      {instruction}
+
+      Task: translate from {source_language} to {target_language}.
+
+      Requirements:
+      - Return only the translated text.
+      - Preserve every line break, markdown token, and code span exactly.
+      - Never translate code blocks, URLs, or {{name}}-style placeholders.
+      - {tone_line}
+
+      Glossary:
+      {glossary_block}
+
+      Emit the translation between {output_open} and {output_close} and nothing else.
+
+  # No delimiters: cleanest for streaming, where post-hoc extraction can't run.
+  raw:
+    description: "No delimiters. Best for streaming or models that reply cleanly."
+    temperature: 0.3
+    system_template: |
+      {instruction}
+
+      Translate the user's text from {source_language} to {target_language}.
+      Output only the translation, preserving all formatting and leaving code,
+      URLs, and {{name}}-style placeholders untranslated. {tone_line}
+
+      Glossary to apply when relevant:
+      {glossary_block}

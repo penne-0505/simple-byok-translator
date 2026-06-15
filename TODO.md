@@ -2,7 +2,7 @@
 
 ## 0. System Metadata
 
-- **Current Max ID**: `Next ID No: 5` (タスク追加時にインクリメント必須)
+- **Current Max ID**: `Next ID No: 6` (タスク追加時にインクリメント必須)
 - **ID Source of Truth**: このファイルの `Next ID No` 行が、全プロジェクトにおける唯一の ID 発番元である。
 
 ## 1. Task Lifecycle (State Machine)
@@ -303,82 +303,6 @@ Risk の詳細は `_docs/standards/quality_assurance.md` を参照する。
 
 ## Backlog
 
-### Docs-Chore-1: [Chore] Review and customize AGENTS.md
-
-- **Title**: [Chore] Review and customize AGENTS.md
-- **ID**: Docs-Chore-1
-- **Priority**: P2
-- **Size**: XS
-- **Risk**: Low
-- **Area**: Docs
-- **Dependencies**: []
-- **Goal**: `AGENTS.md` がプロジェクトのニーズに応じて必要に応じて編集されている。
-- **Acceptance Criteria**:
-  - AC-001: `AGENTS.md` の禁止事項、実行環境、推奨コマンドがプロジェクト実態に合っている。
-  - AC-002: 外部入力、secret、破壊的操作の扱いがプロジェクトの安全基準と矛盾していない。
-- **Steps**:
-  1. [ ] `AGENTS.md` を開き、既存の内容を確認する
-  2. [ ] 必要に応じてプロジェクト固有のコマンドや禁止事項を追記する
-  3. [ ] 変更後にリンクと安全基準の整合性を確認する
-- **Description**:
-  - Context: 新規プロジェクト作成直後に agent 向け入口を調整する。
-  - Notes: `Size XS` かつ `Risk Low` のため Plan / Intent / QA は不要。
-- **Plan**: None
-- **Intent**: None
-- **QA**: None
-- **Verification**: None
-
-### Docs-Chore-2: [Chore] Customize README.md for project
-
-- **Title**: [Chore] Customize README.md for project
-- **ID**: Docs-Chore-2
-- **Priority**: P0
-- **Size**: S
-- **Risk**: Low
-- **Area**: Docs
-- **Dependencies**: []
-- **Goal**: `README.md` がプロジェクトの概要、目的、使用方法に合わせて編集されている。
-- **Acceptance Criteria**:
-  - AC-001: README の概要、使用方法、カスタマイズ案内がプロジェクト固有の内容になっている。
-  - AC-002: テンプレート由来の不要な説明が残っていない。
-- **Steps**:
-  1. [ ] 現在の `README.md` を確認する
-  2. [ ] プロジェクト名、概要、説明をプロジェクトに合わせて書き換える
-  3. [ ] 使用方法セクションを編集する
-  4. [ ] 不要なテンプレート固有の記述を削除または修正する
-- **Description**:
-  - Context: テンプレートから実プロジェクトへ移行するための初期作業。
-  - Notes: `Size S` かつ `Risk Low` のため Plan / Intent / QA は不要。
-- **Plan**: None
-- **Intent**: None
-- **QA**: None
-- **Verification**: None
-
-### Docs-Chore-3: [Chore] Update LICENSE.txt author attribution
-
-- **Title**: [Chore] Update LICENSE.txt author attribution
-- **ID**: Docs-Chore-3
-- **Priority**: P2
-- **Size**: XS
-- **Risk**: Low
-- **Area**: Docs
-- **Dependencies**: []
-- **Goal**: `LICENSE.txt` の著作者名が正しいものに編集されている。
-- **Acceptance Criteria**:
-  - AC-001: `LICENSE.txt` の著作者表示がプロジェクトの権利者に更新されている。
-  - AC-002: README のライセンスリンクが `LICENSE.txt` を参照している。
-- **Steps**:
-  1. [ ] `LICENSE.txt` を開き、著作者名を確認する
-  2. [ ] 正しい著作者名に編集する
-  3. [ ] README のライセンスリンクを確認する
-- **Description**:
-  - Context: OSS 配布前に著作者表示をプロジェクトに合わせる。
-  - Notes: `Size XS` かつ `Risk Low` のため Plan / Intent / QA は不要。
-- **Plan**: None
-- **Intent**: None
-- **QA**: None
-- **Verification**: None
-
 ---
 
 ## Ready
@@ -386,3 +310,33 @@ Risk の詳細は `_docs/standards/quality_assurance.md` を参照する。
 ---
 
 ## In Progress
+
+### Backend-Feat-5: [Feat] BYOK OpenRouter translation backend
+
+- **Title**: [Feat] BYOK OpenRouter translation backend
+- **ID**: Backend-Feat-5
+- **Priority**: P1
+- **Size**: M
+- **Risk**: High
+- **Area**: Backend
+- **Dependencies**: []
+- **Goal**: ユーザーが持ち込んだ OpenRouter 鍵で翻訳でき、モデル・instruction・対モデル翻訳ハーネスが既定で同梱されつつリクエスト単位で上書きできる、抽象化されたバックエンドが動作する。
+- **Acceptance Criteria**:
+  - AC-001: `POST /v1/translate` が BYOK 鍵（Authorization ヘッダ）で翻訳結果を返す。
+  - AC-002: 既定モデル・instruction・ハーネスプロファイルが同梱され、リクエスト単位の上書きが効く。
+  - AC-003: LLM 呼び出しが `ChatProvider` 抽象の背後にあり、OpenRouter 実装が差し替え可能である。
+  - AC-004: 鍵がログ・レスポンス・保存先に一切出力されない。
+  - AC-005: `GET /v1/config` が secret を含まずに利用可能モデル・プロファイル・既定値を返す。
+- **Steps**:
+  1. [x] Intent / QA test-plan を作成する
+  2. [x] provider / harness / engine / config の抽象を実装する
+  3. [x] FastAPI ルートと BYOK 認証依存を実装する
+  4. [x] 単体・統合テストを追加し pytest を通す
+  5. [x] verification を残す
+- **Description**:
+  - Context: 将来 React フロントへ差し替える前提で、バックエンドを疎結合・抽象的に保つ。外部 API・secret を扱うため Risk High。
+  - Notes: 鍵はサーバ保存せずパススルー。streaming は extraction を適用しない素のデルタ。
+- **Plan**: _docs/plan/Backend/byok-translator/plan.md
+- **Intent**: _docs/intent/Backend/byok-translator/decision.md
+- **QA**: _docs/qa/Backend/byok-translator/test-plan.md
+- **Verification**: _docs/qa/Backend/byok-translator/verification.md

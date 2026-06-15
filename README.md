@@ -1,96 +1,86 @@
-# Documentation Driven Development Template
+# simple-byok-translator
 
-> This README is available in English and Japanese. English speakers, please scroll down.
+> BYOK（Bring Your Own Key, OpenRouter 準拠）の翻訳アプリ。鍵はユーザーが持ち込み、サーバは保持しない。
 
 ## 概要
 
-このリポジトリは私が常用しているドキュメント駆動開発 *(Documentation Driven Development)* のテンプレートです。
+ユーザー自身の OpenRouter 鍵で翻訳するシンプルなアプリです。既定でモデル・翻訳 instruction・対モデル翻訳補助ハーネスを同梱しつつ、リクエスト単位で上書きできます。
 
-開発サイクルはドキュメントと [TODO.md](TODO.md) によって構成されています。
+フロントエンドは将来 React に大幅置換する前提で、現在は依存ゼロの単一 HTML（捨てられる前提の最小実装）です。その分、バックエンドは疎結合・抽象的に作り込んであり、フロントとは REST 境界で分離しています。
 
-このテンプレートは `intent` を品質保証の一次資料として扱います。中規模以上、またはリスクのある変更では `_docs/qa/` に QA test-plan と verification を残し、テストを intent-derived invariant と acceptance criteria に紐づけます。`_docs/qa/` はテストコードの置き場ではなく、計画・対応表・検証証跡の置き場です。
+## 設計の要点
 
-人がサイクルを回すことも出来ますが、基本的には**Claude Codeなどのコーディングエージェント**が、この規則に従って自律的な開発を行うために設計されました。
+- **BYOK・鍵非保持**: 鍵は `Authorization: Bearer`（または `X-API-Key`）でリクエスト単位に受け、プロセスに保持しません。ログ・レスポンス・追跡対象ファイルのいずれにも出しません。
+- **provider 抽象**: LLM 呼び出しは `ChatProvider` Protocol の背後にあり、OpenRouter 実装はオブジェクト一つで差し替え可能です。
+- **対モデル翻訳ハーネス**: `HarnessProfile`（system テンプレート・サンプリング・出力抽出規則）をモデル特性ごとに切り替えます。
+- **既定とユーザー上書き**: 解決は一箇所に集約し、優先順位は「同梱既定 < model→profile マッピング < リクエスト明示指定」。翻訳の既定は `backend/config/defaults.yaml` にデータとして置き、コード変更なしに調整できます。
+- **ローカル dev 鍵は OS keyring**: 任意の開発用フォールバック鍵は libsecret / Secret Service（暗号化 at rest）から解決します。平文 `.env` は既定ではありません。
+- **単一バイナリ**: API・既定設定・UI を PyInstaller で 1 ファイルに同梱できます（バイナリは鍵を焼き込みません）。
 
-**詳細については [ガイドライン](_docs/documentation_guide.md) を参照してください。**
+## アーキテクチャ
 
-初めて使う場合は、まず [Quickstart](QUICKSTART.md) を読んでください。
+```text
+routes (HTTP)          backend/app/main.py        ← HTTP を知る唯一の層 + UI 自己ホスト
+  └ TranslationEngine  backend/app/translation/   ← 解決→構築→呼び出し→抽出
+      ├ ConfigStore    backend/app/config_store   ← 既定 + リクエスト上書きの合流
+      ├ harness        backend/app/harness/       ← 純粋関数：プロンプト構築・出力抽出
+      └ ChatProvider   backend/app/providers/     ← LLM 境界（OpenRouter 実装）
+```
 
-## 使用方法
+## クイックスタート
 
-1. このリポジトリをフォークまたはクローンします。
-2. プロジェクトに合わせてドキュメントと設定ファイルを編集します。
-3. 開発を開始します。
+```bash
+cd backend
+uv venv && uv pip install -e ".[dev]"
+uv run python -m app --port 8000
+```
 
-配布用 ZIP を作る場合は、`.git` / `.jj` などの VCS メタデータを含めないために、GitHub 標準アーカイブまたは `scripts/create-template-archive.sh` を使用してください。
+ブラウザで <http://localhost:8000/> を開くと UI（API と同一オリジン）が出ます。鍵は UI に入力するか、ローカル開発用に OS keyring へ格納できます。詳細・curl 例・単一バイナリのビルドは [backend/README.md](backend/README.md) を参照してください。
 
-ローカルでドキュメント検証をまとめて実行する場合は、`scripts/check-docs.sh` を使います。
+## リポジトリ構成
 
-root 直下の Markdown は agent 向けの active guidance として扱われます。一回限りの実装プロンプトを履歴として残す場合は `_evals/prompts/` などへ移し、非運用文書であることを明記してください。
+```text
+backend/        FastAPI バックエンド（provider / harness / config / engine の四層）
+frontend/       最小フロント（単一 HTML、将来 React へ置換）
+_docs/          ドキュメント駆動開発の成果物（intent / plan / qa など）
+TODO.md         タスクの source of truth
+AGENTS.md       coding agent 向けの運用規約
+```
 
-### カスタマイズ
+## 開発ワークフロー
 
-使用に当たっては、以下のファイルをプロジェクトに合わせてカスタマイズしてください。
+このリポジトリはドキュメント駆動開発で運用します。[TODO.md](TODO.md) をタスクの source of truth とし、`Size >= M` または `Risk >= Medium` の変更では `_docs/` 配下に intent / QA test-plan / verification を残します。詳細は [documentation guide](_docs/documentation_guide.md)、coding agent 向けの規約は [AGENTS.md](AGENTS.md)、入口は [QUICKSTART.md](QUICKSTART.md) を参照してください。
 
-#### AGENTS.md
+ローカルのドキュメント検証はまとめて実行できます。
 
-変更の推奨事項はありませんが、特定コマンドの使用指示が含まれているので、必要に応じて編集してください。
+```bash
+./scripts/check-docs.sh
+```
 
-#### README.md
+## ステータス
 
-このREADME自体も、プロジェクトに合わせて編集してください。
-
-#### LICENSE.txt
-
-[LICENSE](LICENSE.txt)についても、特に著作者の表示を編集してください。
+- バックエンド: 実装・実 OpenRouter E2E 済み。テスト・doc validator は green。
+- フロントエンド: 最小 HTML（動作確認用）。React 版は今後の別タスク。
 
 ## ライセンス
 
-このリポジトリは [MITライセンス](LICENSE.txt) の下でライセンスされています。
+[MIT License](LICENSE.txt) の下でライセンスされています。
 
 ---
 
-## Summary
+## Summary (English)
 
-This repository is a template for Documentation Driven Development that I commonly use.
+**simple-byok-translator** is a minimal bring-your-own-key translation app
+(OpenRouter-compatible). Users supply their own key per request; the server
+never stores it. Default model, instruction, and a per-model translation
+harness ship bundled and are overridable per request.
 
-The development cycle is structured around documentation and [TODO.md](TODO.md).
+The frontend is a throwaway single HTML file (a React replacement is planned),
+so the durable work lives in a cleanly separated backend: an abstract
+`ChatProvider` boundary, a pure-function harness, layered config resolution, and
+an orchestration engine. The optional local dev key is stored in the OS keyring
+(encrypted at rest), and the whole app can be packaged into a single binary that
+bakes in no key.
 
-This template treats `intent` documents as primary QA inputs. Medium-sized or risky changes keep a QA test plan and verification record under `_docs/qa/`, and tests should map back to intent-derived invariants and acceptance criteria. `_docs/qa/` is for plans, traceability, and evidence; test code belongs in the codebase's normal test locations.
-
-While humans can run the cycle, it is primarily designed **for coding agents like Claude Code** to autonomously develop according to these rules.
-
-**For more details, please refer to the [Guidelines](_docs/documentation_guide.md).**
-
-If this is your first time using the template, start with the [Quickstart](QUICKSTART.md).
-
-## Usage
-
-1. Fork or clone this repository.
-2. Edit the documentation and configuration files to suit your project.
-3. Start development.
-
-When creating a distribution ZIP, use GitHub's standard archive or `scripts/create-template-archive.sh` so VCS metadata such as `.git` / `.jj` is not included.
-
-Use `scripts/check-docs.sh` to run the local documentation validators together.
-
-Root-level Markdown is treated as active guidance for agents. If you keep a one-off implementation prompt for history, move it under `_evals/prompts/` or another historical location and mark it as non-operational.
-
-### Customization
-
-When using this template, please customize the following files to fit your project.
-
-#### AGENTS.md
-
-No specific changes are recommended here, but feel free to edit it as needed, especially if you want to suggest the use of certain commands.
-
-#### README.md
-
-Feel free to edit this README itself to suit your project.
-
-#### LICENSE.txt
-
-Please edit the [LICENSE](LICENSE.txt) file, particularly the author attribution.
-
-## License
-This repository is licensed under the [MIT License](LICENSE.txt).
+See [backend/README.md](backend/README.md) for setup, API, security posture, and
+single-binary build instructions.

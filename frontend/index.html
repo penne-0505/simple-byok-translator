@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>simple-byok-translator</title>
+    <!--
+      Intentionally minimal and dependency-free. This is a throwaway harness to
+      exercise the backend; it will be replaced by a React frontend. It only
+      talks to the documented endpoints (/v1/config, /v1/translate), so the
+      replacement has a clear contract to follow.
+    -->
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 760px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        line-height: 1.5;
+      }
+      h1 { font-size: 1.2rem; }
+      label { display: block; font-size: 0.85rem; margin: 0.75rem 0 0.2rem; opacity: 0.8; }
+      input, textarea, select, button {
+        width: 100%; padding: 0.5rem; font: inherit; box-sizing: border-box;
+        border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+        border-radius: 6px; background: transparent; color: inherit;
+      }
+      textarea { min-height: 7rem; resize: vertical; }
+      .row { display: flex; gap: 0.75rem; }
+      .row > * { flex: 1; }
+      button {
+        margin-top: 1rem; cursor: pointer; font-weight: 600;
+        background: color-mix(in srgb, currentColor 12%, transparent);
+      }
+      button:disabled { opacity: 0.5; cursor: progress; }
+      #out {
+        white-space: pre-wrap; margin-top: 1rem; padding: 0.75rem;
+        border-radius: 6px; min-height: 3rem;
+        background: color-mix(in srgb, currentColor 6%, transparent);
+      }
+      .meta { font-size: 0.8rem; opacity: 0.7; margin-top: 0.4rem; }
+      .err { color: #c0392b; }
+      details { margin-top: 0.5rem; }
+      summary { cursor: pointer; font-size: 0.85rem; opacity: 0.8; }
+    </style>
+  </head>
+  <body>
+    <h1>simple-byok-translator</h1>
+
+    <label for="base">Backend URL (空欄 = このページと同一オリジン)</label>
+    <input id="base" placeholder="(same origin)" />
+
+    <label for="key">OpenRouter API key (BYOK — stored only in this browser)</label>
+    <input id="key" type="password" placeholder="sk-or-..." autocomplete="off" />
+
+    <label for="src">Source text</label>
+    <textarea id="src" placeholder="翻訳したいテキスト"></textarea>
+
+    <div class="row">
+      <div>
+        <label for="target">Target language</label>
+        <input id="target" placeholder="(default)" />
+      </div>
+      <div>
+        <label for="model">Model</label>
+        <select id="model"></select>
+      </div>
+    </div>
+
+    <details>
+      <summary>Advanced (instruction / tone)</summary>
+      <label for="instruction">Extra instruction (appended to default)</label>
+      <input id="instruction" placeholder="e.g. Use a formal register." />
+      <label for="tone">Tone</label>
+      <input id="tone" placeholder="e.g. casual" />
+      <label for="reasoning">Reasoning effort</label>
+      <select id="reasoning"></select>
+    </details>
+
+    <button id="go">Translate</button>
+
+    <div id="out"></div>
+    <div class="meta" id="meta"></div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const KEY_LS = "byok_key";
+      const BASE_LS = "byok_base";
+
+      $("key").value = localStorage.getItem(KEY_LS) || "";
+      $("base").value = localStorage.getItem(BASE_LS) || "";
+      $("key").addEventListener("change", () => localStorage.setItem(KEY_LS, $("key").value));
+      $("base").addEventListener("change", () => localStorage.setItem(BASE_LS, $("base").value));
+
+      // Empty Backend URL means "same origin as this page", which is how the
+      // bundled single-binary serves both the UI and the API.
+      const apiBase = () => $("base").value.trim().replace(/\/$/, "");
+
+      async function loadConfig() {
+        try {
+          const r = await fetch(apiBase() + "/v1/config");
+          const c = await r.json();
+          const sel = $("model");
+          sel.innerHTML = "";
+          const def = document.createElement("option");
+          def.value = "";
+          def.textContent = `(default: ${c.default_model})`;
+          sel.appendChild(def);
+          (c.known_models || []).forEach((m) => {
+            const o = document.createElement("option");
+            o.value = m;
+            o.textContent = m;
+            sel.appendChild(o);
+          });
+          $("target").placeholder = `(default: ${c.default_target_language})`;
+          const rsel = $("reasoning");
+          rsel.innerHTML = "";
+          const r0 = document.createElement("option");
+          r0.value = "";
+          r0.textContent = "(default)";
+          rsel.appendChild(r0);
+          (c.reasoning_efforts || []).forEach((e) => {
+            const o = document.createElement("option");
+            o.value = e;
+            o.textContent = e;
+            rsel.appendChild(o);
+          });
+        } catch (e) {
+          $("meta").textContent = "config 取得に失敗（Backend URL を確認）";
+        }
+      }
+      loadConfig();
+      $("base").addEventListener("change", loadConfig);
+
+      $("go").addEventListener("click", async () => {
+        const out = $("out");
+        const meta = $("meta");
+        out.classList.remove("err");
+        out.textContent = "…";
+        meta.textContent = "";
+
+        const body = { text: $("src").value };
+        if ($("target").value) body.target_language = $("target").value;
+        if ($("model").value) body.model = $("model").value;
+        if ($("instruction").value) body.instruction = $("instruction").value;
+        if ($("tone").value) body.tone = $("tone").value;
+        if ($("reasoning").value) body.reasoning_effort = $("reasoning").value;
+
+        $("go").disabled = true;
+        try {
+          const r = await fetch(apiBase() + "/v1/translate", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: "Bearer " + $("key").value,
+            },
+            body: JSON.stringify(body),
+          });
+          const data = await r.json();
+          if (!r.ok) {
+            out.classList.add("err");
+            out.textContent = `[${data.code || r.status}] ${data.message || "error"}`;
+            return;
+          }
+          out.textContent = data.translation;
+          const u = data.usage || {};
+          meta.textContent =
+            `model: ${data.model} · profile: ${data.profile} · ` +
+            `${data.source_language} → ${data.target_language}` +
+            (u.total_tokens ? ` · ${u.total_tokens} tok` : "");
+        } catch (e) {
+          out.classList.add("err");
+          out.textContent = "リクエスト失敗: " + e.message;
+        } finally {
+          $("go").disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
