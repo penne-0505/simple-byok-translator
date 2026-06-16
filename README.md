@@ -1,46 +1,51 @@
 # simple-byok-translator
 
-> BYOK（Bring Your Own Key, OpenRouter 準拠）の翻訳アプリ。鍵はユーザーが持ち込み、サーバは保持しない。
+> BYOK（Bring Your Own Key, OpenRouter 準拠）の翻訳アプリ。TypeScript Cloudflare Worker。
 
 ## 概要
 
-ユーザー自身の OpenRouter 鍵で翻訳するシンプルなアプリです。既定でモデル・翻訳 instruction・対モデル翻訳補助ハーネスを同梱しつつ、リクエスト単位で上書きできます。
+OpenRouter で翻訳するシンプルなアプリです。既定でモデル・翻訳 instruction・対モデル翻訳補助ハーネスを同梱しつつ、リクエスト単位で上書きできます。鍵はリクエストで持ち込む BYOK と、ログインしてサーバ保持の鍵を使う方式の二つに対応します。
 
-フロントエンドは将来 React に大幅置換する前提で、現在は依存ゼロの単一 HTML（捨てられる前提の最小実装）です。その分、バックエンドは疎結合・抽象的に作り込んであり、フロントとは REST 境界で分離しています。
+フロントエンドは将来 React に大幅置換する前提で、現在は依存ゼロの単一 HTML（捨てられる前提の最小実装）です。その分、バックエンド（Worker）は疎結合・抽象的に作り込んであり、フロントとは REST 境界で分離しています。
+
+稼働中: <https://simple-byok-translator.penneotibo.workers.dev>
 
 ## 設計の要点
 
-- **BYOK・鍵非保持**: 鍵は `Authorization: Bearer`（または `X-API-Key`）でリクエスト単位に受け、プロセスに保持しません。ログ・レスポンス・追跡対象ファイルのいずれにも出しません。
-- **provider 抽象**: LLM 呼び出しは `ChatProvider` Protocol の背後にあり、OpenRouter 実装はオブジェクト一つで差し替え可能です。
-- **対モデル翻訳ハーネス**: `HarnessProfile`（system テンプレート・サンプリング・出力抽出規則）をモデル特性ごとに切り替えます。
-- **既定とユーザー上書き**: 解決は一箇所に集約し、優先順位は「同梱既定 < model→profile マッピング < リクエスト明示指定」。翻訳の既定は `backend/config/defaults.yaml` にデータとして置き、コード変更なしに調整できます。
-- **ローカル dev 鍵は OS keyring**: 任意の開発用フォールバック鍵は libsecret / Secret Service（暗号化 at rest）から解決します。平文 `.env` は既定ではありません。
-- **単一バイナリ**: API・既定設定・UI を PyInstaller で 1 ファイルに同梱できます（バイナリは鍵を焼き込みません）。
+- **二モードの鍵解決**: `getCredentials` 一箇所に集約。BYOK ヘッダ（`Authorization: Bearer` / `X-API-Key`）が常に優先。鍵なしリクエストは、ログインセッションがあればサーバ保持の `OPENROUTER_KEY` を使う。鍵は保持・ログ出力しない。
+- **単一 admin ログイン（DB なし）**: PBKDF2 ＋ HMAC 署名 Cookie。資格情報は Worker Secret（＋ UI ローテーション用に KV）。未設定なら純 BYOK で安全に立ち上がる。
+- **provider 抽象**: LLM 呼び出しは `ChatProvider` の背後にあり、OpenRouter 実装はオブジェクト一つで差し替え可能。
+- **対モデル翻訳ハーネス**: `HarnessProfile`（system テンプレート・サンプリング・reasoning・出力抽出規則）をモデル特性ごとに切り替える。
+- **既定とユーザー上書き**: 解決は一箇所に集約し、優先順位は「同梱既定 < model→profile マッピング < リクエスト明示指定」。翻訳の既定は `worker/src/config.ts` に型付きデータとして置く。
 
 ## アーキテクチャ
 
 ```text
-routes (HTTP)          backend/app/main.py        ← HTTP を知る唯一の層 + UI 自己ホスト
-  └ TranslationEngine  backend/app/translation/   ← 解決→構築→呼び出し→抽出
-      ├ ConfigStore    backend/app/config_store   ← 既定 + リクエスト上書きの合流
-      ├ harness        backend/app/harness/       ← 純粋関数：プロンプト構築・出力抽出
-      └ ChatProvider   backend/app/providers/     ← LLM 境界（OpenRouter 実装）
+routes (Hono)          worker/src/app.ts        ← HTTP を知る唯一の層 + UI 自己ホスト
+  └ TranslationEngine  worker/src/engine.ts     ← 解決→構築→呼び出し→抽出
+      ├ ConfigStore    worker/src/config.ts     ← 既定 + リクエスト上書きの合流
+      ├ harness        worker/src/harness.ts    ← 純粋関数：プロンプト構築・出力抽出
+      └ ChatProvider   worker/src/provider.ts   ← LLM 境界（OpenRouter 実装）
+  getCredentials       worker/src/credentials.ts ← 鍵の継ぎ目（BYOK / サーバ鍵）
+  auth                 worker/src/auth.ts        ← PBKDF2・署名セッション
 ```
 
 ## クイックスタート
 
 ```bash
-cd backend
-uv venv && uv pip install -e ".[dev]"
-uv run python -m app --port 8000
+cd worker
+npm install
+npm test              # vitest（fake provider、ネットワーク無し）
+npx wrangler dev      # ローカル workerd
+npx wrangler deploy   # Cloudflare へ
 ```
 
-ブラウザで <http://localhost:8000/> を開くと UI（API と同一オリジン）が出ます。鍵は UI に入力するか、ローカル開発用に OS keyring へ格納できます。詳細・curl 例・単一バイナリのビルドは [backend/README.md](backend/README.md) を参照してください。
+UI は Worker が同一オリジンで自己ホストします。セットアップ・API・ログイン/鍵の設定・デプロイ手順は [worker/README.md](worker/README.md) を参照してください。
 
 ## リポジトリ構成
 
 ```text
-backend/        FastAPI バックエンド（provider / harness / config / engine の四層）
+worker/         TypeScript Cloudflare Worker（Hono、本体・デプロイ対象）
 frontend/       最小フロント（単一 HTML、将来 React へ置換）
 _docs/          ドキュメント駆動開発の成果物（intent / plan / qa など）
 TODO.md         タスクの source of truth
@@ -59,8 +64,9 @@ AGENTS.md       coding agent 向けの運用規約
 
 ## ステータス
 
-- バックエンド: 実装・実 OpenRouter E2E 済み。テスト・doc validator は green。
-- フロントエンド: 最小 HTML（動作確認用）。React 版は今後の別タスク。
+- TS Worker (`worker/`): **Cloudflare デプロイ済み**。vitest 65 件・実 OpenRouter E2E（node）・本番エッジで BYOK / ログイン / サーバ鍵を検証済み。
+- 認証: 単一 admin の**ログイン**（DB なし、PBKDF2 ＋ 署名 Cookie）。UI からパスワード・ユーザー名をローテート可能（KV）。詳細は [worker/README.md](worker/README.md)。
+- フロントエンド: 最小 HTML（動作確認用、同一オリジン配信、ログイン / BYOK 対応）。React 版は今後の別タスク。
 
 ## ライセンス
 
@@ -70,17 +76,15 @@ AGENTS.md       coding agent 向けの運用規約
 
 ## Summary (English)
 
-**simple-byok-translator** is a minimal bring-your-own-key translation app
-(OpenRouter-compatible). Users supply their own key per request; the server
-never stores it. Default model, instruction, and a per-model translation
-harness ship bundled and are overridable per request.
+**simple-byok-translator** is a minimal translation app (OpenRouter-compatible),
+deployed as a TypeScript Cloudflare Worker. It resolves credentials two ways:
+bring-your-own-key per request (header), or a login session that unlocks a
+server-held key. The server never logs or persists a key.
 
-The frontend is a throwaway single HTML file (a React replacement is planned),
-so the durable work lives in a cleanly separated backend: an abstract
-`ChatProvider` boundary, a pure-function harness, layered config resolution, and
-an orchestration engine. The optional local dev key is stored in the OS keyring
-(encrypted at rest), and the whole app can be packaged into a single binary that
-bakes in no key.
+A single-admin login (no database — PBKDF2 hash + HMAC-signed cookie, with KV for
+UI-driven rotation) gates the server-key path; with nothing configured it is pure
+BYOK. Default model, instruction, and a per-model translation harness ship bundled
+and are overridable per request, behind a clean `ChatProvider` boundary.
 
-See [backend/README.md](backend/README.md) for setup, API, security posture, and
-single-binary build instructions.
+The frontend is a throwaway single HTML file (a React replacement is planned). See
+[worker/README.md](worker/README.md) for setup, API, auth, and deploy.

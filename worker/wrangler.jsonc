@@ -1,0 +1,29 @@
+{
+  // Cloudflare Worker config. Deploy with `npx wrangler deploy`.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "simple-byok-translator",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-06-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Self-host the throwaway UI from the same origin. Asset paths (e.g. "/") are
+  // served directly; unmatched paths fall through to the Worker (/v1/*, /healthz).
+  // Point this at the React build output when that lands.
+  "assets": {
+    "directory": "../frontend",
+    "binding": "ASSETS"
+  },
+
+  "observability": { "enabled": true },
+
+  // Runtime-mutable admin credentials (UI password/username rotation). Worker
+  // Secrets are immutable at runtime, so the rotated hash lives in KV, which
+  // overrides the bootstrap ADMIN_* Secrets. Omit this binding for a pure
+  // Secret-only (CLI-rotated) deployment.
+  "kv_namespaces": [
+    { "binding": "AUTH_KV", "id": "9367aa7305f74321b434cec0891826dd" }
+  ]
+
+  // Secrets (not here): OPENROUTER_KEY, ADMIN_USER, ADMIN_PASSWORD_HASH,
+  // SESSION_SECRET. Set with `wrangler secret put`. Unset = pure BYOK.
+}

@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>simple-byok-translator</title>
     <!--
-      Intentionally minimal and dependency-free. This is a throwaway harness to
-      exercise the backend; it will be replaced by a React frontend. It only
-      talks to the documented endpoints (/v1/config, /v1/translate), so the
+      Intentionally minimal and dependency-free. A throwaway harness to exercise
+      the backend; it will be replaced by a React frontend. It only talks to the
+      documented endpoints (/auth/*, /v1/config, /v1/translate), so the
       replacement has a clear contract to follow.
     -->
     <style>
@@ -43,6 +43,13 @@
       .err { color: #c0392b; }
       details { margin-top: 0.5rem; }
       summary { cursor: pointer; font-size: 0.85rem; opacity: 0.8; }
+      #auth {
+        margin: 0.5rem 0 1rem; padding: 0.75rem; border-radius: 6px;
+        background: color-mix(in srgb, currentColor 6%, transparent);
+      }
+      .inline { display: flex; gap: 0.5rem; align-items: center; }
+      .inline > input { margin: 0; }
+      .inline > button { margin: 0; width: auto; white-space: nowrap; }
     </style>
   </head>
   <body>
@@ -51,7 +58,9 @@
     <label for="base">Backend URL (空欄 = このページと同一オリジン)</label>
     <input id="base" placeholder="(same origin)" />
 
-    <label for="key">OpenRouter API key (BYOK — stored only in this browser)</label>
+    <div id="auth"></div>
+
+    <label for="key">OpenRouter API key (BYOK — 任意。ログイン時は不要)</label>
     <input id="key" type="password" placeholder="sk-or-..." autocomplete="off" />
 
     <label for="src">Source text</label>
@@ -69,7 +78,7 @@
     </div>
 
     <details>
-      <summary>Advanced (instruction / tone)</summary>
+      <summary>Advanced (instruction / tone / reasoning)</summary>
       <label for="instruction">Extra instruction (appended to default)</label>
       <input id="instruction" placeholder="e.g. Use a formal register." />
       <label for="tone">Tone</label>
@@ -93,14 +102,127 @@
       $("key").addEventListener("change", () => localStorage.setItem(KEY_LS, $("key").value));
       $("base").addEventListener("change", () => localStorage.setItem(BASE_LS, $("base").value));
 
-      // Empty Backend URL means "same origin as this page", which is how the
-      // bundled single-binary serves both the UI and the API.
+      // Empty Backend URL means "same origin as this page".
       const apiBase = () => $("base").value.trim().replace(/\/$/, "");
+      const api = (path, opts = {}) =>
+        fetch(apiBase() + path, { credentials: "include", ...opts });
 
+      // ----- auth ----------------------------------------------------------
+      async function refreshAuth() {
+        const box = $("auth");
+        let s;
+        try {
+          s = await (await api("/auth/me")).json();
+        } catch {
+          box.style.display = "none";
+          return;
+        }
+        if (!s.login_configured) {
+          box.style.display = "none"; // pure BYOK deployment
+          return;
+        }
+        box.style.display = "block";
+        if (s.authenticated) {
+          box.innerHTML = "";
+          const span = document.createElement("span");
+          span.textContent = `Logged in as ${s.username} · `;
+          const btn = document.createElement("button");
+          btn.textContent = "Logout";
+          btn.style.cssText = "width:auto;margin:0;padding:0.2rem 0.6rem;";
+          btn.onclick = async () => {
+            await api("/auth/logout", { method: "POST" });
+            refreshAuth();
+          };
+          box.append(span, btn);
+
+          if (s.rotation_available) {
+            const det = document.createElement("details");
+            const sum = document.createElement("summary");
+            sum.textContent = "ユーザー名・パスワードを変更";
+            const cur = Object.assign(document.createElement("input"), {
+              type: "password",
+              placeholder: "現在のパスワード",
+            });
+            const np = Object.assign(document.createElement("input"), {
+              type: "password",
+              placeholder: "新しいパスワード（8文字以上）",
+            });
+            const nu = Object.assign(document.createElement("input"), {
+              placeholder: "新しいユーザー名（任意）",
+            });
+            const up = Object.assign(document.createElement("button"), { textContent: "Update" });
+            const msg = Object.assign(document.createElement("div"), { className: "meta" });
+            up.onclick = async () => {
+              up.disabled = true;
+              msg.classList.remove("err");
+              try {
+                const r = await api("/auth/change-password", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    current_password: cur.value,
+                    new_password: np.value,
+                    new_username: nu.value || undefined,
+                  }),
+                });
+                const d = await r.json();
+                if (!r.ok) {
+                  msg.textContent = `[${d.code || r.status}] ${d.message || "failed"}`;
+                  msg.classList.add("err");
+                  return;
+                }
+                msg.textContent = "変更しました。";
+                cur.value = np.value = nu.value = "";
+                refreshAuth();
+              } finally {
+                up.disabled = false;
+              }
+            };
+            det.append(sum, cur, np, nu, up, msg);
+            box.append(det);
+          }
+        } else {
+          box.innerHTML = "";
+          const u = Object.assign(document.createElement("input"), { placeholder: "username" });
+          const p = Object.assign(document.createElement("input"), {
+            placeholder: "password",
+            type: "password",
+          });
+          const btn = Object.assign(document.createElement("button"), { textContent: "Login" });
+          const msg = Object.assign(document.createElement("div"), {
+            className: "meta",
+            textContent: "ログインするとサーバの鍵で翻訳できます（鍵入力は不要）。",
+          });
+          const row = document.createElement("div");
+          row.className = "inline";
+          row.append(u, p, btn);
+          btn.onclick = async () => {
+            btn.disabled = true;
+            try {
+              const r = await api("/auth/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username: u.value, password: p.value }),
+              });
+              if (!r.ok) {
+                const e = await r.json();
+                msg.textContent = `[${e.code || r.status}] ${e.message || "login failed"}`;
+                msg.classList.add("err");
+                return;
+              }
+              refreshAuth();
+            } finally {
+              btn.disabled = false;
+            }
+          };
+          box.append(row, msg);
+        }
+      }
+
+      // ----- config --------------------------------------------------------
       async function loadConfig() {
         try {
-          const r = await fetch(apiBase() + "/v1/config");
-          const c = await r.json();
+          const c = await (await api("/v1/config")).json();
           const sel = $("model");
           sel.innerHTML = "";
           const def = document.createElement("option");
@@ -126,13 +248,19 @@
             o.textContent = e;
             rsel.appendChild(o);
           });
-        } catch (e) {
+        } catch {
           $("meta").textContent = "config 取得に失敗（Backend URL を確認）";
         }
       }
-      loadConfig();
-      $("base").addEventListener("change", loadConfig);
 
+      function boot() {
+        refreshAuth();
+        loadConfig();
+      }
+      boot();
+      $("base").addEventListener("change", boot);
+
+      // ----- translate -----------------------------------------------------
       $("go").addEventListener("click", async () => {
         const out = $("out");
         const meta = $("meta");
@@ -147,14 +275,15 @@
         if ($("tone").value) body.tone = $("tone").value;
         if ($("reasoning").value) body.reasoning_effort = $("reasoning").value;
 
+        // BYOK if a key is present; otherwise the session cookie (server key).
+        const headers = { "Content-Type": "application/json" };
+        if ($("key").value) headers.Authorization = "Bearer " + $("key").value;
+
         $("go").disabled = true;
         try {
-          const r = await fetch(apiBase() + "/v1/translate", {
+          const r = await api("/v1/translate", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: "Bearer " + $("key").value,
-            },
+            headers,
             body: JSON.stringify(body),
           });
           const data = await r.json();

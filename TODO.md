@@ -2,7 +2,7 @@
 
 ## 0. System Metadata
 
-- **Current Max ID**: `Next ID No: 6` (タスク追加時にインクリメント必須)
+- **Current Max ID**: `Next ID No: 9` (タスク追加時にインクリメント必須)
 - **ID Source of Truth**: このファイルの `Next ID No` 行が、全プロジェクトにおける唯一の ID 発番元である。
 
 ## 1. Task Lifecycle (State Machine)
@@ -310,33 +310,3 @@ Risk の詳細は `_docs/standards/quality_assurance.md` を参照する。
 ---
 
 ## In Progress
-
-### Backend-Feat-5: [Feat] BYOK OpenRouter translation backend
-
-- **Title**: [Feat] BYOK OpenRouter translation backend
-- **ID**: Backend-Feat-5
-- **Priority**: P1
-- **Size**: M
-- **Risk**: High
-- **Area**: Backend
-- **Dependencies**: []
-- **Goal**: ユーザーが持ち込んだ OpenRouter 鍵で翻訳でき、モデル・instruction・対モデル翻訳ハーネスが既定で同梱されつつリクエスト単位で上書きできる、抽象化されたバックエンドが動作する。
-- **Acceptance Criteria**:
-  - AC-001: `POST /v1/translate` が BYOK 鍵（Authorization ヘッダ）で翻訳結果を返す。
-  - AC-002: 既定モデル・instruction・ハーネスプロファイルが同梱され、リクエスト単位の上書きが効く。
-  - AC-003: LLM 呼び出しが `ChatProvider` 抽象の背後にあり、OpenRouter 実装が差し替え可能である。
-  - AC-004: 鍵がログ・レスポンス・保存先に一切出力されない。
-  - AC-005: `GET /v1/config` が secret を含まずに利用可能モデル・プロファイル・既定値を返す。
-- **Steps**:
-  1. [x] Intent / QA test-plan を作成する
-  2. [x] provider / harness / engine / config の抽象を実装する
-  3. [x] FastAPI ルートと BYOK 認証依存を実装する
-  4. [x] 単体・統合テストを追加し pytest を通す
-  5. [x] verification を残す
-- **Description**:
-  - Context: 将来 React フロントへ差し替える前提で、バックエンドを疎結合・抽象的に保つ。外部 API・secret を扱うため Risk High。
-  - Notes: 鍵はサーバ保存せずパススルー。streaming は extraction を適用しない素のデルタ。
-- **Plan**: _docs/plan/Backend/byok-translator/plan.md
-- **Intent**: _docs/intent/Backend/byok-translator/decision.md
-- **QA**: _docs/qa/Backend/byok-translator/test-plan.md
-- **Verification**: _docs/qa/Backend/byok-translator/verification.md
